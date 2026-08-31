@@ -1,0 +1,13 @@
+# Opt-in layer: mount the dsh-local-no-auth function plugin over the current
+# composition without changing shipped defaults or any upstream source.
+#
+#   pnpm dsh plugin --profile web add <this-directory>          # local dev install
+#   dsh plugin --profile web add github:falling-ts/dsh-local-no-auth   # once published
+#
+# The plugin bypasses browser-session authentication for the loopback-local dsh
+# web instance by replacing the live `connection` instance methods
+# (requestRejection / authorizeIndex / authenticatedUrl); unload restores them.
+
+- insert:
+    - id: dsh-local-no-auth
+      name: '@falling-ts/dsh-local-no-auth'
