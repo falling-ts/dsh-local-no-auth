@@ -26,7 +26,8 @@ launch token、不需要 cookie——而且**不改上游源码的一个字**。
 | `authorizeIndex` | 前端 index 请求的 token/cookie 认证 |
 | `authenticatedUrl` | 打印的启动 URL（追加 launch token） |
 
-本插件在自身 `apply` 里把这三个**实例方法**在运行时替换掉：
+本插件在自身 `apply` 里先读取实时 `webServer` 绑定地址：**只有回环字面量才
+继续**，否则 fail-loud 抛错拒载；然后才把这三个**实例方法**在运行时替换掉：
 
 ```js
 connection.requestRejection = () => undefined   // 所有 /api 请求直接放行
@@ -40,11 +41,15 @@ connection.authenticatedUrl = (url) => url      // 打印的 URL 保持干净
 
 ## 安全边界
 
+- **绑定地址闸门**：`apply` 读取实时 `webServer` 主机并校验为
+  `127.0.0.1` / `localhost` 才放行，否则抛错拒载（fail-loud，无静默兜底）。
+  上游 webserver 的 Config schema 只接受 `'127.0.0.1' | '0.0.0.0'`，因此
+  `0.0.0.0`（所有网卡）必然被拒——插件绝不会在"其它主机可达"的监听上静默生效。
 - `dsh web` 只绑回环，CLI **拒绝 `--host 0.0.0.0`**，所以本插件自身不会把
   服务暴露给其它主机。
 - **不要**与任何让该端口可达性超出本机的手段搭配（共享机器上的 SSH 转发、
   VLAN 回环、NAT hairpin）。
-- 若上游未来允许非回环绑定，**不要**启用本插件。
+- 若上游未来允许非回环绑定，本插件会拒绝启动，而不是静默放行。
 
 ## 安装
 
@@ -64,10 +69,10 @@ dsh plugin --profile web add github:falling-ts/dsh-local-no-auth
 
 ```sh
 curl -i http://127.0.0.1:<port>/          # 200 + index.html，无需 token
-curl -i -X POST http://127.0.0.1:<port>/api/session.list \
+curl -i -X POST http://127.0.0.1:<port>/api/session/list \
   -H 'content-type: application/json' \
-  -d '{"type":"client-request","rpcId":"probe","method":"session.list","payload":{}}'
-# 返回业务响应 {result:{ok:true,...}} —— 不是 401
+  -d '{"type":"client-request","rpcId":"probe","method":"session/list","payload":{}}'
+# 返回业务信封（2xx，result.ok 为 true/false）—— 绝不是 401
 ```
 
 ## 卸载

@@ -1,7 +1,7 @@
 {
   "name": "@falling-ts/dsh-local-no-auth",
-  "version": "0.1.0",
-  "description": "DSH Cordis plugin: loopback-local no-auth for the dsh web GUI. Replaces the live ctx.connection instance's three authentication methods (requestRejection / authorizeIndex / authenticatedUrl) at runtime so the loopback-bound dsh web instance serves the frontend and /api without a launch token or browser cookie, and prints clean URLs. Touches no upstream source; dispose restores the original methods.",
+  "version": "0.1.1",
+  "description": "DSH Cordis plugin: loopback-local no-auth for the dsh web GUI. Replaces the live ctx.connection instance's three authentication methods (requestRejection / authorizeIndex / authenticatedUrl) at runtime so the loopback-bound dsh web instance serves the frontend and /api without a launch token or browser cookie, and prints clean URLs. Refuses to start unless the live webServer bind host is loopback-only (127.0.0.1 / localhost). Touches no upstream source; dispose restores the original methods.",
   "type": "module",
   "main": "./index.js",
   "exports": {

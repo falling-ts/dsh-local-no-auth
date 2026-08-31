@@ -29,8 +29,9 @@ Upstream routes every authentication decision through the live
 | `authorizeIndex` | frontend index request — token/cookie exchange |
 | `authenticatedUrl` | printed startup URL — appends the launch token |
 
-This plugin, in its own `apply`, replaces those three **instance methods**
-at runtime:
+This plugin, in its own `apply`, first checks the live webServer bind host and
+**refuses to start** unless it is a loopback literal, then replaces those three
+**instance methods** at runtime:
 
 ```js
 connection.requestRejection = () => undefined   // every /api request proceeds
@@ -45,13 +46,18 @@ whole local surface becomes token- and cookie-free at once. On unload
 
 ## Safety boundary
 
+- **Bind-host gate:** `apply` reads the live `webServer` bind host and throws
+  (fails loud, no timeout fallback) unless it is `127.0.0.1` or `localhost`.
+  The upstream webserver Config schema only accepts `'127.0.0.1' | '0.0.0.0'`,
+  so `0.0.0.0` (all interfaces) always fails and the bypass never silently
+  activates against a reachable-by-others listen.
 - `dsh web` binds loopback and the CLI **rejects `--host 0.0.0.0`**, so this
   bypass cannot, by itself, expose the server to other hosts.
 - Never combine with anything that makes the reach accessible beyond the local
   machine (SSH forwarders on shared boxes, VLAN loopback, NAT hairpin).
 - Authorization of *remote* requests is unchanged only because there are none
-  on a loopback bind; if upstream ever allows non-loopback binds, **do not**
-  enable this plugin.
+  on a loopback bind; if upstream ever allows non-loopback binds, this plugin
+  refuses to start rather than silently bypassing.
 
 ## Install
 
@@ -71,10 +77,10 @@ layer. Restart `dsh web` afterwards.
 
 ```sh
 curl -i http://127.0.0.1:<port>/          # 200 + index.html, no token needed
-curl -i -X POST http://127.0.0.1:<port>/api/session.list \
+curl -i -X POST http://127.0.0.1:<port>/api/session/list \
   -H 'content-type: application/json' \
-  -d '{"type":"client-request","rpcId":"probe","method":"session.list","payload":{}}'
-# business response {result:{ok:true,...}} — not 401
+  -d '{"type":"client-request","rpcId":"probe","method":"session/list","payload":{}}'
+# a business envelope arrives (2xx, result.ok true/false) — never 401
 ```
 
 ## Uninstall

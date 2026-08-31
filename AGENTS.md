@@ -27,6 +27,12 @@
 
 - 只在本机构成下合法：`dsh web` 回环绑定 + CLI 拒绝 `0.0.0.0`。README 的
   安全边界节与注释不可删除。
+- **绑定地址闸门（必须保留）**：`apply` 必须先校验实时 `webServer` 绑定
+  主机为回环字面量（`127.0.0.1` / `localhost`），否则 fail-loud 抛错拒载；
+  不允许删除该校验或放宽白名单（上游 webserver Config schema 只接受
+  `'127.0.0.1' | '0.0.0.0'`，`0.0.0.0` 恒被拒）。校验用 `ctx.webServer.host`
+  getter（读 config 值，非 socket 探测），`inject` 必须同时声明
+  `connection` 与 `webServer`。
 - profile 安装路径：`dsh plugin --profile <p> add`（本地目录或发布后的
   github 提法）；`dsh web` 无 `--patch` 叠加，勿在文档里承诺它。
 
