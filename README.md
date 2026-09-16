@@ -46,18 +46,40 @@ whole local surface becomes token- and cookie-free at once. On unload
 
 ## Safety boundary
 
-- **Bind-host gate:** `apply` reads the live `webServer` bind host and throws
-  (fails loud, no timeout fallback) unless it is `127.0.0.1` or `localhost`.
-  The upstream webserver Config schema only accepts `'127.0.0.1' | '0.0.0.0'`,
-  so `0.0.0.0` (all interfaces) always fails and the bypass never silently
-  activates against a reachable-by-others listen.
+- **Bind-host gate:** `apply` reads the live `webServer` bind host and refuses
+  unless it is `127.0.0.1` or `localhost` (see *How a refusal reaches the
+  process* below). The upstream webserver Config schema only accepts
+  `'127.0.0.1' | '0.0.0.0'`, so `0.0.0.0` (all interfaces) always fails and the
+  bypass never silently activates against a reachable-by-others listen.
 - `dsh web` binds loopback and the CLI **rejects `--host 0.0.0.0`**, so this
   bypass cannot, by itself, expose the server to other hosts.
 - Never combine with anything that makes the reach accessible beyond the local
   machine (SSH forwarders on shared boxes, VLAN loopback, NAT hairpin).
 - Authorization of *remote* requests is unchanged only because there are none
   on a loopback bind; if upstream ever allows non-loopback binds, this plugin
-  refuses to start rather than silently bypassing.
+  refuses rather than silently bypassing.
+
+### How a refusal reaches the process
+
+Three failures are possible: the `connection` service is missing, the
+`webServer` bind host cannot be read, the host is not loopback, or one of the
+three auth methods is no longer a function. Each one writes an explicit
+`dsh-local-no-auth: refusing to start — …` line to stderr naming the reason,
+requests a nonzero exit through the launcher's `ctx.appExit`, and then throws.
+
+The `ctx.appExit` request is not decoration. Up to harness 0.1.5 a thrown
+`apply` aborted the whole boot; since 0.1.6-alpha.1 upstream is fatal only for a
+private list of required entries (`agent-loop`, `webserver`, `modules`,
+`connection`, `headless-runner`, `acp`, `sdk-jsonrpc-server`), so **a plugin
+entry cannot abort the boot by throwing** — it produces one generic
+`warning: N entry did not activate` line and the server serves anyway. The
+launcher's exit request is what restores a real nonzero exit; the throw is kept
+for older harnesses, where it still is fatal.
+
+**When auditing a running instance:** if this plugin's entry fails to activate
+for any reason, `dsh web` still serves, with authentication intact. Confirm the
+bypass is actually installed by the `[dsh-local-no-auth] active:` line on
+stdout/stderr — not by the absence of a crash.
 
 ## Install
 

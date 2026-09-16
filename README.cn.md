@@ -27,7 +27,8 @@ launch token、不需要 cookie——而且**不改上游源码的一个字**。
 | `authenticatedUrl` | 打印的启动 URL（追加 launch token） |
 
 本插件在自身 `apply` 里先读取实时 `webServer` 绑定地址：**只有回环字面量才
-继续**，否则 fail-loud 抛错拒载；然后才把这三个**实例方法**在运行时替换掉：
+继续**，否则拒载（机制见下文《拒载如何到达进程》）；然后才把这三个**实例方法**
+在运行时替换掉：
 
 ```js
 connection.requestRejection = () => undefined   // 所有 /api 请求直接放行
@@ -42,14 +43,32 @@ connection.authenticatedUrl = (url) => url      // 打印的 URL 保持干净
 ## 安全边界
 
 - **绑定地址闸门**：`apply` 读取实时 `webServer` 主机并校验为
-  `127.0.0.1` / `localhost` 才放行，否则抛错拒载（fail-loud，无静默兜底）。
+  `127.0.0.1` / `localhost` 才放行，否则拒载（机制见下文《拒载如何到达进程》）。
   上游 webserver 的 Config schema 只接受 `'127.0.0.1' | '0.0.0.0'`，因此
   `0.0.0.0`（所有网卡）必然被拒——插件绝不会在"其它主机可达"的监听上静默生效。
 - `dsh web` 只绑回环，CLI **拒绝 `--host 0.0.0.0`**，所以本插件自身不会把
   服务暴露给其它主机。
 - **不要**与任何让该端口可达性超出本机的手段搭配（共享机器上的 SSH 转发、
   VLAN 回环、NAT hairpin）。
-- 若上游未来允许非回环绑定，本插件会拒绝启动，而不是静默放行。
+- 若上游未来允许非回环绑定，本插件会拒绝，而不是静默放行。
+
+### 拒载如何到达进程
+
+可能触发的失败有四种：`connection` 服务缺失、`webServer` 绑定地址读不到、
+绑定地址不是回环、三个认证方法之一不再是函数。每一种都会：向 **stderr** 写一条
+明确的 `dsh-local-no-auth: refusing to start — …`（含原因）、通过启动器的
+`ctx.appExit` **请求非零退出**、然后 **抛错**。
+
+`ctx.appExit` 这一步不是装饰。0.1.5 及以前，`apply` 抛错会让整棵树启动失败；
+**0.1.6-alpha.1 起上游只对一份私有的必需 entry 清单（`agent-loop`、`webserver`、
+`modules`、`connection`、`headless-runner`、`acp`、`sdk-jsonrpc-server`）致命**，
+因此**插件 entry 无法靠抛错中止启动**——只会产生一条通用的
+`warning: N entry did not activate`，服务照常启动。真正恢复"非零退出"语义的是
+启动器的退出请求；保留抛错是为了在更老的 harness 上仍然致命。
+
+**审计运行中实例时请注意**：本插件 entry 无论因何原因未能激活，`dsh web` 都会
+照常提供服务且**鉴权完好**。判断免鉴权是否真的装上，要看 stdout/stderr 上的
+`[dsh-local-no-auth] active:` 一行，而不是"没有崩"。 
 
 ## 安装
 
