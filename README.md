@@ -44,6 +44,36 @@ gateway, the web-app URL announcement) calls them by instance reference, so the
 whole local surface becomes token- and cookie-free at once. On unload
 (`dispose`) the original methods are restored.
 
+## Bundled fix: upstream bogus "plugin metadata" diagnostics (2026-09-23)
+
+Harness 0.1.7-alpha.2's profile-resolution interception unconditionally rewrites
+`error.stack` before re-throwing a resolution error (`throwWithImporter` /
+`throwWithoutCjsAnchor` in `resolver.ts`). Node's internal
+`ERR_PACKAGE_PATH_NOT_EXPORTED` exposes `stack` as a **non-writable own property**
+on some Node builds (measured: `{writable:false, configurable:true}`), so the
+assignment throws `TypeError: Cannot assign to read only property 'stack'`. That
+TypeError no longer matches the metadata reader's "resource absent"
+classification, so the Plugins page reports "包元信息错误 / Plugin metadata for
+<pkg>: TypeError: …" for **nearly every package** — official ones included.
+
+Read this as a display bug, not a functional one: in a measured inventory of 184
+entries, **zero** were `enabled && !active`; every flagged entry was `active`.
+And it is **not reachable from configuration** — the metadata read runs for every
+entry unconditionally, none of `plugin-inventory` / `plugin-manager` /
+`pluginPackages` exposes a relevant switch, and the crash sits below the whole
+configuration surface.
+
+This plugin therefore also wraps `ctx.pluginPackages.metaOf` at runtime, dropping
+**only** the diagnostic whose text contains
+`Cannot assign to read only property 'stack'`, and recovering display text from
+the package manifest's `name` / `description`; every other metadata diagnostic
+passes through untouched. The shim is best-effort and `pluginPackages` is
+deliberately **not** in `inject` — when the service is absent the shim is skipped
+with a warning and the authentication bypass is unaffected.
+
+Once upstream wraps those two assignments in try/catch, this shim can be deleted
+and the plugin returns to doing only the no-auth bypass.
+
 ## Safety boundary
 
 - **Bind-host gate:** `apply` reads the live `webServer` bind host and refuses

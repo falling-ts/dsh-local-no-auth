@@ -40,6 +40,28 @@ connection.authenticatedUrl = (url) => url      // 打印的 URL 保持干净
 公告）都是按实例引用调用这三个方法的，因此整个本地面一次性变为免 token、
 免 cookie。插件卸载（`dispose`）时恢复原方法。
 
+## 附带修复：上游"包元信息错误"假诊断（2026-09-23）
+
+harness 0.1.7-alpha.2 的 profile-resolution 拦截层，在转发解析错误前会**无条件**
+改写 `error.stack`（`resolver.ts` 的 `throwWithImporter` / `throwWithoutCjsAnchor`）。
+Node 内部错误 `ERR_PACKAGE_PATH_NOT_EXPORTED` 的 `stack` 在部分 Node 构建上是
+**不可写的 own 属性**（本机实测 `{writable:false, configurable:true}`），赋值即抛
+`TypeError: Cannot assign to read only property 'stack'`；该 TypeError 不再被元信息
+读取器归入"资源不存在"，于是插件页面对**几乎所有插件**（含官方 `dsh-llm`、
+`cordis-plugin-timer`、`dsh-persona`）显示"包元信息错误"。
+
+判断要点：**这只是显示问题**——实测 184 个 entry 里 `enabled && !active` 为 **0**，
+报错 entry 的 `fiberPhase` 全是 `active`。而且**配置层无解**：元信息读取对所有 entry
+无条件执行，`plugin-inventory` / `plugin-manager` / `pluginPackages` 都没有相关开关，
+崩溃点位于所有配置面之下。
+
+所以本插件顺手在运行期包裹 `ctx.pluginPackages.metaOf`：**只**剥离错误串里含
+`Cannot assign to read only property 'stack'` 的那一条，并用包 manifest 的
+`name` / `description` 兜底显示文本；其它元信息诊断原样透传。该兜底是 best-effort，
+且 `pluginPackages` **不进 `inject`**——它缺失时跳过并 warn，绝不影响免鉴权本身。
+
+上游把那两处赋值改成 try/catch 之后，这段兜底即可删除，本插件回到只做免鉴权。
+
 ## 安全边界
 
 - **绑定地址闸门**：`apply` 读取实时 `webServer` 主机并校验为
