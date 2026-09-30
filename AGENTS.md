@@ -90,10 +90,10 @@ peer 下界保持 `>=0.2.0-rc.1`（0.2.0 列车；rc.1 → rc.2 是同列车补�
 - **绑定闸门**：`ctx.webServer.host` getter 仍在，schema 仍只收 `'127.0.0.1' | '0.0.0.0'`。
 - **fail-loud 缝**：`ctx.appExit` 仍由启动器在树挂载前 provide（`packages/boot/cmdline/src/index.ts`）。
 
-端到端复核（3180 dev 实例 + `DSH_HOME=~/.dsh-web`）：`pluginInventory/list` 中
+端到端复核（3080 web 实例 + `DSH_HOME=~/.dsh-web`）：`pluginInventory/list` 中
 `include:dsh-local-no-auth` 为 `enabled:true` / `fiberPhase:active`，服务日志打印
 `[dsh-local-no-auth] active: browser token/cookie checks bypassed; URLs printed clean`，
-无 token 直连 `http://127.0.0.1:3180/` 与 `/api/*` 均 200。**本仓库源码与文档无需改动**，
+无 token 直连 `http://127.0.0.1:3080/` 与 `/api/*` 均 200。**本仓库源码与文档无需改动**，
 故 version 不动。
 
 ## 上游插件元信息假错误（2026-09-23，靠配置无解，故由本插件兜底）
