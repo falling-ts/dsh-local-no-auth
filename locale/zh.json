@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "本地免鉴权",
+    "description": "让回环绑定的 dsh web 实例免启动令牌与浏览器 cookie；绑定地址不是回环时直接拒载。"
+  }
+}

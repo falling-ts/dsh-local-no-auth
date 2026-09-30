@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Local no-auth",
+    "description": "Serves the loopback-bound dsh web instance without a launch token or browser cookie; refuses to start on any non-loopback bind host."
+  }
+}

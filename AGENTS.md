@@ -122,6 +122,37 @@ pnpm / registry 项，`pluginPackages` 只有 `resolution`——**没有任何 m
 **何时可以删除本兜底**：上游把这两处赋值改成 try/catch（或让 `missingResource` 覆盖该
 TypeError）之后即可移除，届时本插件应回到只做免鉴权。
 
+## 显示元数据（`locale/*.json` + `icon`，2026-09-30 补齐）
+
+宿主 `readPluginMeta`（`packages/boot/app-boot/src/package-meta.ts`）在不执行插件代码的前提下按
+`${specifier}/locale/en.json` 读标题与描述、按清单顶层 `icon` 读图标，两者都要经 `exports` 发布
+（否则解析报 `ERR_PACKAGE_PATH_NOT_EXPORTED`，被当"资源不存在"静默跳过，回退到 package.json 的
+`name`/`description`）。此前两者都缺，插件卡片显示的是那一整段 npm 描述；现在：
+
+- `locale/en.json` = `{ meta: { title: "Local no-auth", description: … } }` + `locale/zh.json`；
+- `icon.svg`（开锁图形）；
+- `exports` 加 `"./locale/*.json"`，`files` 加 `"locale/*.json"` 与 `"icon.svg"`。
+
+**注意**：这是在补显示面，**不新增任何运行时替换面**（见上文铁律）；本插件仍然没有 Client 半部、
+没有 `dsh.client` 声明、没有 `./client` 导出。清单变更需重启实例才生效（profile-resolution 启动时
+快照插件 exports）。回归闸门：`node exploration/plugin-manifest-check.mjs`。
+
+## 规范符合性说明（2026-09-30 评审）
+
+按上游 `cordis-plugin-development` skill 与 `docs/user/develop/**` 核对，本插件与其它两个插件一样：
+组合包 manifest 齐全、Host 插件只具名导出（**无 default export**）、注册即 `ctx.effect`（unload 恢复
+三个方法与 `metaOf`）、`Config` 声明的可调项齐全（本插件无可调项）、fail-loud 走 `ctx.appExit`。
+
+两处**有意偏离**，改动前先读这一节：
+
+1. **运行期替换 `ctx.connection` 三方法与包裹 `pluginPackages.metaOf` 都不是官方扩展点**。
+   规范要求"新行为挂在文档化的扩展点上"，但认证面与那条假诊断**都没有官方出口**（后者位于所有
+   配置面之下的解析拦截层内），所以这是"规范无解法"的折中：边界、恢复、fail-loud 都在上文
+   "运行时替换的边界"里写死了，不得再扩大。
+2. **日志用 `console.log` / `console.warn`**（Host 插件通常该走 `ctx.logger`）。这里保留 `console`
+   是因为 `refuseStart` 必须在**任何服务都不可用**（包括 logger）时仍能往 stderr 说话；那行
+   `[dsh-local-no-auth] active: …` 也是启动脚本 grep 的判据。
+
 ## 提交规范
 
 - 独立 git 仓库（远程：`falling-ts/dsh-local-no-auth`，branch `main`），
