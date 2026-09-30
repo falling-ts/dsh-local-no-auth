@@ -56,7 +56,9 @@
   getter（读 config 值，非 socket 探测），`inject` 必须同时声明
   `connection` 与 `webServer`。
 - profile 安装路径：`dsh plugin --profile <p> add`（本地目录或发布后的
-  github 提法）；`dsh web` 无 `--patch` 叠加，勿在文档里承诺它。
+  github 提法）。CLI **有** `--patch <file>`（可重复，实测 0.2.0-rc.2 可用），
+  但它叠加的是配置层、不安装包；被叠加文件若按**包名**引用插件，该包仍须先装进
+  profile。
 
 ## harness 0.1.7-alpha.2 适配（2026-09-23）
 
@@ -71,6 +73,28 @@ dsh 安装提供、不在 profile 的 node_modules 中，标 required 只会产�
 仍然如此（`packages/boot/app-boot/src/index.ts`），所以 `refuseStart` 里
 `ctx.get('appExit')(1)` 这条 fail-loud 路径保持必需——不要因为"上游又发新版"而删掉它。
 `ctx.appExit` 仍由启动器在树挂载前提供（`packages/boot/cmdline`）。
+
+## harness 0.2.0-rc.2 复核（2026-09-30）：零改动
+
+peer 下界保持 `>=0.2.0-rc.1`（0.2.0 列车；rc.1 → rc.2 是同列车补丁，纯下界本就不该收窄）。
+两个替换面与 fail-loud 缝逐条复核，rc.2 上**全部仍在**：
+
+- **认证面**：`HostConnectionHandle` 接口的 `requestRejection` / `authorizeIndex` /
+  `authenticatedUrl` 三方法仍在（`packages/client/connection/src/rpc.ts` 的接口声明，
+  `rpc-host.ts` 的实例实现），替换点不变。
+- **元信息面**：假诊断的来源未修——`packages/boot/app-boot/src/profile-resolution/resolver.ts`
+  仍在 `throwWithImporter` / `throwWithoutCjsAnchor` 里**无条件**改写 `error.stack`
+  （`if (stack !== undefined) error.stack = stack.replace(...)`），而
+  `package-meta.ts` 的 `missingResource()` 仍只认 `ERR_PACKAGE_PATH_NOT_EXPORTED` /
+  `ERR_MODULE_NOT_FOUND`（认不出被改写 stack 时抛出的 TypeError）。故 `metaOf` 兜底**继续必要**。
+- **绑定闸门**：`ctx.webServer.host` getter 仍在，schema 仍只收 `'127.0.0.1' | '0.0.0.0'`。
+- **fail-loud 缝**：`ctx.appExit` 仍由启动器在树挂载前 provide（`packages/boot/cmdline/src/index.ts`）。
+
+端到端复核（3180 dev 实例 + `DSH_HOME=~/.dsh-web`）：`pluginInventory/list` 中
+`include:dsh-local-no-auth` 为 `enabled:true` / `fiberPhase:active`，服务日志打印
+`[dsh-local-no-auth] active: browser token/cookie checks bypassed; URLs printed clean`，
+无 token 直连 `http://127.0.0.1:3180/` 与 `/api/*` 均 200。**本仓库源码与文档无需改动**，
+故 version 不动。
 
 ## 上游插件元信息假错误（2026-09-23，靠配置无解，故由本插件兜底）
 
