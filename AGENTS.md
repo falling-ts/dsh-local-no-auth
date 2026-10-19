@@ -13,17 +13,21 @@
 
 ## 运行时替换的边界
 
-- **认证面**：只允许替换 `ctx.connection` 实例的 `requestRejection` / `authorizeIndex` /
-  `authenticatedUrl` 三个方法；新增覆盖必须先核对上游 `HostConnectionHandle`
-  接口与对应调用点（`/api` 路由、frontend-static 兜底席位、API 网关、
-  web-app URL 公告），并同步 README。
+- **认证面**：只允许替换 `ctx.connection` 实例的 `requestRejection` / `admit` /
+  `admitConnection` / `authorizeIndex` / `authenticatedUrl` 五个方法；新增覆盖必须先核对上游
+  `HostConnectionHandle` 接口与对应调用点（`/api` HTTP 路由、API-stream WS upgrade、
+  frontend-static 兜底席位、web-app URL 公告），并同步 README。
+  **为什么第五个是 `admitConnection` 与 `admit`（2026-10-19，0.2.1 起）**：0.2.0 的 `admit`
+  是 `requestRejection` 的薄包装，替换后者即可放行 `/api`；0.2.1 把认证搬进了 `admit` 自己，
+  `/api` HTTP 与 API-stream 升级各走一条闸门，只替换旧三方法会得到"插件打印 active、`/api` 全 401"
+  的最坏失效，详见下文 0.2.1 适配节。
 - **元信息面（2026-09-23 新增，唯一的第二个替换面）**：额外允许包裹
   `ctx.pluginPackages` 实例的 `metaOf`，**仅**用于剥离上游 0.1.7-alpha.2 的假诊断
   （`Cannot assign to read only property 'stack'`，见下节）。硬约束：
   ① 只按该固定错误串精确匹配后剥离，其它 metadata 诊断一律原样透传，不得扩大匹配；
   ② `pluginPackages` **不得**加进 `inject`——免鉴权是主职责，不得变成依赖某个
   metadata 服务的条件行为；缺服务时跳过并 warn，不影响鉴权替换；
-  ③ 同样是 apply 替换 / `dispose` 恢复，无 timer、无持久化状态、无 Client UI；
+  ③ 同样是 apply 替换 / disposer 恢复，无 timer、无持久化状态、无 Client UI；
   ④ 剥离后必须用包 manifest 的 `name` / `description` 兜底显示文本，不能留空。
   除上述两面外，**不得**再新增任何运行时替换面。
 - 方法在 `apply` 里替换、在 `ctx.effect` 的 disposer 里恢复；恢复逻辑
@@ -32,8 +36,8 @@
   全仓无 `emit('dispose')`）。上游唯一清理惯用法是 `ctx.effect(() => () => { … })`。
   用错法的后果不是"无害"：热重载/卸载后补丁永久残留，且再次 apply 时 `originals`
   会把已替换的 no-op 当成原方法捕获，`dispose` 变成"恢复 no-op"的自锁。
-- 替换前置校验：三个方法必须都是函数，否则拒载——上游改接口时本插件宁可挂掉
-  也不静默失效。
+- 替换前置校验：五个方法必须都是函数、`browserPeer` 必须可用，否则拒载——上游改接口时
+  本插件宁可挂掉也不静默失效。
 - **fail-loud 必须由本插件自己承担（2026-09-17，harness 0.1.6-alpha.1 起）**：
   四处拒载点全部走 `refuseStart(ctx, reason)`，它做三件事——往 stderr 写含原因的
   `refusing to start` 行、调 `ctx.get('appExit')(1)` 请求非零退出、然后抛错。
@@ -73,6 +77,65 @@ dsh 安装提供、不在 profile 的 node_modules 中，标 required 只会产�
 仍然如此（`packages/boot/app-boot/src/index.ts`），所以 `refuseStart` 里
 `ctx.get('appExit')(1)` 这条 fail-loud 路径保持必需——不要因为"上游又发新版"而删掉它。
 `ctx.appExit` 仍由启动器在树挂载前提供（`packages/boot/cmdline`）。
+
+## harness 0.2.1-rc.2 适配（2026-10-19）：认证面从三个方法扩到五个
+
+peer 下界升至 **`>=0.2.1-rc.1`**（0.2.1 列车），vendor 升至 cordis `>=4.0.5` /
+schemastery `>=3.18.5`。`peer-range-probe.mjs` 的规则是"声明的列车下界必须与 checkout
+同列车"——0.2.1 是**真实换车**（不是 0.2.0 内的补丁），所以下界必须跟着走。
+
+**破坏性变更（本次唯一一处，且是本插件存在的理由被直接命中）**：上游重写了
+`connection.admit`。0.2.0 的形态是薄包装——
+
+```ts
+admit(request) {
+  const rejection = this.requestRejection(request)          // 0.2.0：委托
+  return rejection === undefined ? { peer: this.operator } : { rejection }
+}
+```
+
+0.2.1 改为**自己认证**，不再经过 `requestRejection`：
+
+```ts
+admit(request) {
+  const secure = …                                        // 直接走 isTrusted +
+  if (this.isTrusted(request) || …) return { peer }        // browserAuth.isAuthenticated /
+  …this.browserAuth.isAuthenticated(request, secure)…      // authenticateApi
+}
+```
+
+后果：只替换三方法时，`/api` 的每一个 RPC 仍然 401，**而插件照常打印
+`active: … bypassed`**——最坏的失效形态（用户以为免鉴权已生效）。实测于 0.2.1-rc.2：
+`POST /api/pluginInventory/list` 与 `/api/settings/describe` 均 401。
+
+**修复**：`AUTH_METHODS` 扩为五个（`requestRejection` / `admit` / `admitConnection` /
+`authorizeIndex` / `authenticatedUrl`），`admit` 返回 `{ peer: connection.browserPeer }`，
+`admitConnection` 返回 `{ peer: connection.browserPeer, release: () => Promise.resolve() }`。
+三点设计理由：
+
+1. **复用 `browserPeer`**，不新造 Peer：它就是上游 `admit()` 认证成功时返回的那个
+   owner Peer（`rpc-host.ts` 的 `this.browserPeer = new Peer(ctx, { principal: { kind: 'owner' } })`），
+   所以免鉴权路径与真实登录在 principal、interaction participation、生命周期上完全一致，
+   下游（权限判定、Peer 归属）看不出差别。
+2. **`release` 是 resolved no-op**：上游 `admitConnection` 只为**逐 socket 的 API Peer**
+   登记释放（`Promise.all(releases)`），共享的 browser Peer 没有 socket 所有权可弃，
+   返回一个 resolved Promise 保持载体的契约形状。
+3. **`browserPeer` 缺失即 fail-loud 拒载**（`refuseStart`）：宁可挂掉，也不返回一个
+   下游会当成"某人"的半成品 admission。
+
+`/api` 走 `connection.admit(req)`（`packages/client/connection/src/index.ts`），
+API-stream WS upgrade 走 `connection.admitConnection(req)`（`packages/api/gateway/src/index.ts`），
+两者是**不同的闸门**，缺一不可。`requestRejection` 的替换保留：侧路（`open-in-app`、
+inspector）仍在用它。
+
+**回归闸门**：`exploration/fc-plugin-load-probe.mjs` 与 `exploration/lna-refusestart-probe.mjs`
+的 mock 都已补上 `admit`/`admitConnection`/`browserPeer`，并断言五个方法全部被替换、
+`admitConnection().release` 是 resolved Promise、dispose 后五个方法全部还原。
+
+端到端复核（3099 实例，`DSH_HOME=~/.dsh-web`，0.2.1-rc.2）：`POST /api/pluginInventory/list`
+与 `/api/settings/describe` **均 200**；`include:dsh-local-no-auth` 为
+`enabled:true` / `fiberPhase:active`；无 token 直连 `GET /` 返回 200 且页面渲染出
+`0.2.1-rc.2-687f282`。
 
 ## harness 0.2.0-rc.2 复核（2026-09-30）：零改动
 
@@ -141,11 +204,11 @@ TypeError）之后即可移除，届时本插件应回到只做免鉴权。
 
 按上游 `cordis-plugin-development` skill 与 `docs/user/develop/**` 核对，本插件与其它两个插件一样：
 组合包 manifest 齐全、Host 插件只具名导出（**无 default export**）、注册即 `ctx.effect`（unload 恢复
-三个方法与 `metaOf`）、`Config` 声明的可调项齐全（本插件无可调项）、fail-loud 走 `ctx.appExit`。
+五个方法与 `metaOf`）、`Config` 声明的可调项齐全（本插件无可调项）、fail-loud 走 `ctx.appExit`。
 
 两处**有意偏离**，改动前先读这一节：
 
-1. **运行期替换 `ctx.connection` 三方法与包裹 `pluginPackages.metaOf` 都不是官方扩展点**。
+1. **运行期替换 `ctx.connection` 五方法与包裹 `pluginPackages.metaOf` 都不是官方扩展点**。
    规范要求"新行为挂在文档化的扩展点上"，但认证面与那条假诊断**都没有官方出口**（后者位于所有
    配置面之下的解析拦截层内），所以这是"规范无解法"的折中：边界、恢复、fail-loud 都在上文
    "运行时替换的边界"里写死了，不得再扩大。

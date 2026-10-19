@@ -58,8 +58,22 @@ export const name = 'dsh-local-no-auth'
 /** Connection and webServer must be active before their members can be read. */
 export const inject = ['connection', 'webServer']
 
-/** The connection instance methods that own every auth decision in this app. */
-const AUTH_METHODS = ['requestRejection', 'authorizeIndex', 'authenticatedUrl']
+/**
+ * The connection instance methods that own every auth decision in this app.
+ *
+ * `admit` / `admitConnection` joined this list for harness 0.2.1 (2026-10-19):
+ * that release rewrote `admit` to authenticate DIRECTLY through `isTrusted` +
+ * `browserAuth.isAuthenticated` / `authenticateApi`, dropping the 0.2.0 shape
+ * `const rejection = this.requestRejection(request); return rejection ===
+ * undefined ? { peer } : { rejection }`. Overriding only `requestRejection`
+ * therefore stopped bypassing `/api` — observed as a 401 on every RPC against
+ * `dsh-v0.2.1-rc.2` even though the plugin logged "active". `requestRejection`
+ * stays replaced for the side routes that still consult it (`open-in-app`, the
+ * inspector); `admit`/`admitConnection` are the `/api` HTTP route and the
+ * API-stream WS upgrade (`packages/client/connection/src/index.ts` and
+ * `packages/api/gateway/src/index.ts`).
+ */
+const AUTH_METHODS = ['requestRejection', 'admit', 'admitConnection', 'authorizeIndex', 'authenticatedUrl']
 
 /** Bind hosts this bypass may operate under: loopback literals only. */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost'])
@@ -204,7 +218,27 @@ export function apply(ctx) {
     }
     originals[method] = connection[method]
   }
+
+  // The Peer every authenticated request is admitted for. `browserPeer` is the
+  // owner Peer that upstream `admit()` itself returns on a successful browser
+  // cookie, so reusing it keeps the bypass indistinguishable from a real login:
+  // same principal, same interaction participation, same lifetime (disposed with
+  // the Connection Context). Read defensively — a future release that renames it
+  // leaves the plugin fail-loud on the first request instead of silently broken.
+  const peer = connection.browserPeer
+  if (peer === undefined || peer === null || typeof peer !== 'object') {
+    refuseStart(ctx, 'connection.browserPeer unavailable, cannot admit requests without authentication')
+  }
+
   connection.requestRejection = () => undefined
+  // `/api` HTTP route (client-connection/src/index.ts). Upstream 0.2.1 reads the
+  // credential here instead of delegating to `requestRejection`.
+  connection.admit = () => ({ peer })
+  // API-stream WS upgrade (api/gateway/src/index.ts). The shared browser Peer has
+  // no socket ownership to release, so `release` is a resolved no-op: upstream's
+  // own `admitConnection` only tears down per-socket API peers, and returning a
+  // `release` keeps the carrier's `Promise.all(releases)` contract intact.
+  connection.admitConnection = () => ({ peer, release: () => Promise.resolve() })
   connection.authorizeIndex = () => true
   connection.authenticatedUrl = (baseUrl) => baseUrl
   ctx.effect(() => () => {

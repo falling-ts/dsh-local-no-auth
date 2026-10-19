@@ -25,24 +25,39 @@ Upstream routes every authentication decision through the live
 
 | method | gate |
 |---|---|
-| `requestRejection` | `/api` surface (RPC, streams, gateway) — 401/403 |
+| `requestRejection` | side routes that still consult it (`open-in-app`, the inspector) |
+| `admit` | `/api` HTTP route — returns the admitted Peer or 401/403 |
+| `admitConnection` | API-stream WS upgrade — returns Peer + release, or 401/403/409 |
 | `authorizeIndex` | frontend index request — token/cookie exchange |
 | `authenticatedUrl` | printed startup URL — appends the launch token |
 
+**Why five and not three (harness 0.2.1):** 0.2.0's `admit` was a thin wrapper —
+`const rejection = this.requestRejection(request); return rejection === undefined
+? { peer } : { rejection }` — so replacing `requestRejection` alone opened `/api`.
+0.2.1 rewrote `admit` to authenticate directly through `isTrusted` +
+`browserAuth.isAuthenticated` / `authenticateApi` and no longer consults
+`requestRejection`, which made this plugin log "active" while every `/api` call
+still answered **401**. `admit`/`admitConnection` are therefore replaced
+explicitly, each returning the Connection's own `browserPeer` (the same owner
+Peer upstream hands out on a real browser login, so the bypass is
+indistinguishable from one).
+
 This plugin, in its own `apply`, first checks the live webServer bind host and
-**refuses to start** unless it is a loopback literal, then replaces those three
+**refuses to start** unless it is a loopback literal, then replaces those five
 **instance methods** at runtime:
 
 ```js
-connection.requestRejection = () => undefined   // every /api request proceeds
-connection.authorizeIndex   = () => true        // index serves immediately
-connection.authenticatedUrl = (url) => url      // printed URL stays clean
+connection.requestRejection = () => undefined               // side routes proceed
+connection.admit           = () => ({ peer })               // every /api request proceeds
+connection.admitConnection = () => ({ peer, release: noop }) // API-stream upgrades proceed
+connection.authorizeIndex  = () => true                     // index serves immediately
+connection.authenticatedUrl = (url) => url                   // printed URL stays clean
 ```
 
 Every consumer (the `/api` route, the frontend-static fallback seat, the API
 gateway, the web-app URL announcement) calls them by instance reference, so the
 whole local surface becomes token- and cookie-free at once. On unload
-(`dispose`) the original methods are restored.
+(`ctx.effect` disposer) the original methods are restored.
 
 ## Bundled fix: upstream bogus "plugin metadata" diagnostics (2026-09-23)
 
@@ -91,9 +106,10 @@ and the plugin returns to doing only the no-auth bypass.
 
 ### How a refusal reaches the process
 
-Three failures are possible: the `connection` service is missing, the
+Four failures are possible: the `connection` service is missing, the
 `webServer` bind host cannot be read, the host is not loopback, or one of the
-three auth methods is no longer a function. Each one writes an explicit
+five auth methods is no longer a function (or `browserPeer` is unavailable).
+Each one writes an explicit
 `dsh-local-no-auth: refusing to start — …` line to stderr naming the reason,
 requests a nonzero exit through the launcher's `ctx.appExit`, and then throws.
 
