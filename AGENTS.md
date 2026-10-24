@@ -78,6 +78,44 @@ dsh 安装提供、不在 profile 的 node_modules 中，标 required 只会产�
 `ctx.get('appExit')(1)` 这条 fail-loud 路径保持必需——不要因为"上游又发新版"而删掉它。
 `ctx.appExit` 仍由启动器在树挂载前提供（`packages/boot/cmdline`）。
 
+## harness 0.2.1-rc.3 适配（2026-10-24）：零改动
+
+上游 `687f282e86`（rc.2）→ `22ddee3792`（master HEAD，`dsh-v0.2.1-rc.3-1533-g22ddee3792`），
+**1539 个提交**；版本列车仍是 **0.2.1**（rc.2 → rc.3），vendor `cordis 4.0.5` /
+`schemastery 3.18.5` 未变 → peer 下界 **`>=0.2.1-rc.1` 不动**。
+
+两个替换面与 fail-loud 缝逐条核对（**全部仍在**，源码无需改动）：
+
+- **认证面**：`HostConnectionHandle` 的五个方法 `requestRejection` / `admit` /
+  `admitConnection` / `authorizeIndex` / `authenticatedUrl` 全部仍在
+  （`packages/client/connection/src/{rpc.ts,rpc-host.ts,browser-auth.ts}`），
+  `rpc-host.ts` 里 `browserPeer` 仍在（4 处引用），`admit` 的形态与 rc.2 一致
+  （自己认证、不委托 `requestRejection`），AUTH_METHODS 五个无需变动。
+  `connection` 包这一轮 9 个文件的改动**全是新增 locale 文件**（de/es/fr/ja/pt/ru），
+  代码只加了一个可选的 `resolveAsset?(reference)`（worker tunnel 用，本插件不碰）。
+- **元信息面**：假诊断的来源**未修**——`profile-resolution/resolver.ts:819` 仍无条件执行
+  `error.stack = stack.replace(originalMessage, error.message)`，`package-meta.ts:82` 的
+  `missingResource()` 仍只认 `ERR_PACKAGE_PATH_NOT_EXPORTED` / `ERR_MODULE_NOT_FOUND` /
+  `MODULE_NOT_FOUND` / `ENOENT` / `ENOTDIR`，认不出被改写 stack 后抛出的 TypeError。
+  故 `pluginPackages.metaOf` 兜底**继续必要**。
+- **绑定闸门**：`packages/host/webserver/src/index.ts:411` 的 `get host()` 仍在，
+  schema 仍只收 `'127.0.0.1' | '0.0.0.0'`。
+- **fail-loud 缝**：`ctx.appExit` 仍由启动器在树挂载前 provide
+  （`packages/boot/cmdline/src/index.ts:87` 的 `ctx.provide('appExit', host.exit)`）。
+- `app-boot` 这轮改动（60 增 / 170 删）主要是**把官方 bundle 目录搬进新包
+  `@deepseek-ai/dsh-official-bundles`**（`INSTALLATION_OWNED_PROFILE_TUPLES` /
+  `PROFILE_TEMPLATES` / `RETIRED_BUNDLES`），`pluginInventory` 与 `plugin-compatibility`
+  的判定逻辑（`engines.dsh` 优先、否则逐 peer）未变。
+
+端到端复核（3099 隔离实例，`DSH_HOME=~/.dsh-web`，0.2.1-rc.3）：服务日志打印
+`[dsh-local-no-auth] active: browser token/cookie checks bypassed; URLs printed clean
+(bind host "127.0.0.1", loopback-only)`；**无 token 直连** `GET /` 返回 200（页面渲染出
+`0.2.1-rc.3-22ddee3`），`POST /api/pluginInventory/list` 与 `/api/settings/describe` 均 200
+（证明五个方法的替换在 rc.3 上依然覆盖 `/api` HTTP 与流式升级两条闸门）；
+`pluginInventory/list` 中 `include:dsh-local-no-auth` 为 `enabled:true` / `fiberPhase:active`；
+**204 个条目的 `meta.error` 计数为 0**——元信息兜底在 rc.3 上仍正常工作。
+离线 `lna-refusestart-probe.mjs` 29 项全绿。
+
 ## harness 0.2.1-rc.2 适配（2026-10-19）：认证面从三个方法扩到五个
 
 peer 下界升至 **`>=0.2.1-rc.1`**（0.2.1 列车），vendor 升至 cordis `>=4.0.5` /
