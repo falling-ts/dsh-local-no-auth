@@ -78,6 +78,34 @@ dsh 安装提供、不在 profile 的 node_modules 中，标 required 只会产�
 `ctx.get('appExit')(1)` 这条 fail-loud 路径保持必需——不要因为"上游又发新版"而删掉它。
 `ctx.appExit` 仍由启动器在树挂载前提供（`packages/boot/cmdline`）。
 
+## harness 0.2.1-rc.5 适配（2026-10-30）：零改动
+
+基线切到 **`dsh-v0.2.1-rc.5`**（`b830ec950f`，页面版本串 `0.2.1-rc.5-b830ec9`）——`next`
+dist-tag 所指版本，是**从 rc.3 tag 拉出的 release 分支**（只多 13 个修复提交），
+不含 master 上 rc.3 之后的 1500+ 提交（那条线已到 `0.2.2-alpha.2`）。
+
+两个替换面与 fail-loud 缝逐条核对（**全部仍在**，源码无需改动）：
+
+- **认证面**：`HostConnectionHandle` 五个方法全在——`requestRejection`
+  （`client/connection/src/rpc.ts:233`）、`admit`（:240）、`admitConnection`（:256）、
+  `authorizeIndex`（:266）、`authenticatedUrl`（:273）；`rpc-host.ts:72` 的
+  `readonly browserPeer` 与 :94 的 `new Peer(ctx, { principal: { kind: 'owner' } })` 都在，
+  `AUTH_METHODS` 五个无需变动。
+- **元信息面**：假诊断的来源**仍未修**——`app-boot/src/profile-resolution/resolver.ts:819`
+  仍无条件 `error.stack = stack.replace(originalMessage, error.message)`，
+  `package-meta.ts:84-85` 的 `missingResource()` 仍只认那五个 code，认不出被改写 stack 后的
+  TypeError。故 `pluginPackages.metaOf` 兜底**继续必要**。
+- **绑定闸门**：`host/webserver/src/index.ts:332` 的 `get host()` 仍在，schema 仍只收
+  `'127.0.0.1' | '0.0.0.0'`（`0.0.0.0` 恒被拒）。
+- **fail-loud 缝**：`boot/cmdline/src/index.ts:87` 仍 `ctx.provide('appExit', host.exit)`。
+
+端到端复核（3099 隔离实例，`DSH_HOME=~/.dsh-web`，0.2.1-rc.5）：**无 token 直连**
+`GET /` 返回 200（页面渲染出 `0.2.1-rc.5-b830ec9`），`POST /api/pluginInventory/list` 与
+`/api/settings/describe` 均 200——证明五个方法的替换同时覆盖 `/api` HTTP 与 API-stream
+升级两条闸门；`pluginInventory/list` 返回 200 个条目、`include:dsh-local-no-auth` 为
+`enabled:true` / `fiberPhase:active`，**`meta.error` 计数为 0**（元信息兜底在 rc.5 上仍正常）。
+离线 `lna-refusestart-probe.mjs` **29 项全绿**。
+
 ## harness 0.2.1-rc.3 适配（2026-10-24）：零改动
 
 上游 `687f282e86`（rc.2）→ `22ddee3792`（master HEAD，`dsh-v0.2.1-rc.3-1533-g22ddee3792`），
