@@ -78,6 +78,32 @@ dsh 安装提供、不在 profile 的 node_modules 中，标 required 只会产�
 `ctx.get('appExit')(1)` 这条 fail-loud 路径保持必需——不要因为"上游又发新版"而删掉它。
 `ctx.appExit` 仍由启动器在树挂载前提供（`packages/boot/cmdline`）。
 
+## harness 0.2.2-rc.1 适配（2026-11-10）：源码零改动，peer 换车
+
+基线切到 **`dsh-v0.2.2-rc.1`**（master HEAD `fcc0ad4621`；tag 指向 `66491b05`），从
+`b830ec950f`（0.2.1-rc.5）共 **3434 个提交**、6234 个文件。**真实换车**（0.2.1 → 0.2.2），
+peer 下界 `>=0.2.1-rc.1` → **`>=0.2.2-rc.1`**；vendor `cordis 4.0.5 → 4.1.0`、
+`schemastery 3.18.5 → 3.19.0`。版本 0.7.1 → 0.7.2。
+
+两个替换面与 fail-loud 缝逐条核对（**全部仍在**，源码无需改动）：
+
+- **认证面**：`HostConnectionHandle` 五个方法签名逐字未变——
+  `requestRejection`（`client/connection/src/rpc.ts:233`）、`admit`（:240）、
+  `admitConnection`（:256）、`authorizeIndex`（:266）、`authenticatedUrl`（:273）；
+  `rpc-host.ts` 的实现仍在（`requestRejection` :123、`authorizeIndex` :193、
+  `authenticatedUrl` :198），`browserPeer` 仍在。`connection` 包本轮改动只有 6 个新 locale
+  文件 + `src/client/index.ts` 的 6 行增量 + 一处测试。`AUTH_METHODS` 五个无需变动。
+- **元信息面**：假诊断的来源**仍未修**（`profile-resolution/resolver.ts` 仍无条件改写
+  `error.stack`，`package-meta.ts` 的 `missingResource()` 仍认不出被改写 stack 后的
+  TypeError），故 `pluginPackages.metaOf` 兜底**继续必要**。`plugin-manager` 本轮改动很大
+  （39 文件 / +2487），但 `metaOf(row.name, base)` 的调用形态未变。
+- **绑定闸门**：`host/webserver/src/index.ts` 的 `get host()` 仍在，schema 仍只收
+  `'127.0.0.1' | '0.0.0.0'`。该包本轮新增了 `WebResource` 路由与 `webserver/index-inject`
+  的第二个参数 `peer: PeerScope`——**本插件两者都不使用**（只读 `webServer.host`），零影响。
+- **fail-loud 缝**：`ctx.get('appExit')` 仍由启动器 provide。
+
+离线 `lna-refusestart-probe.mjs` **29 项全绿**。
+
 ## harness 0.2.1-rc.5 适配（2026-10-30）：零改动
 
 基线切到 **`dsh-v0.2.1-rc.5`**（`b830ec950f`，页面版本串 `0.2.1-rc.5-b830ec9`）——`next`
